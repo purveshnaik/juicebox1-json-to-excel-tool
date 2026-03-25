@@ -2,12 +2,18 @@ import streamlit as st
 import json
 import tempfile
 import pandas as pd
+import re
 import streamlit.components.v1 as components
 from process_juicebox import extract, make_xlsx
 
 st.set_page_config(page_title="JSON to Excel", layout="wide")
 
 st.title("JSON → Spreadsheet Converter")
+
+# --- CLEANER FUNCTION (fix invalid JSON newlines) ---
+def clean_json(text):
+    # Replace raw newlines with escaped \n
+    return re.sub(r'(?<!\\)\n', r'\\n', text)
 
 # --- INPUT ---
 json_text = st.text_area("Paste your JSON here", height=300)
@@ -17,7 +23,10 @@ if st.button("Convert"):
         st.error("Paste some JSON first.")
     else:
         try:
-            data = json.loads(json_text)
+            # 🔥 CLEAN JSON BEFORE PARSING
+            cleaned_text = clean_json(json_text)
+
+            data = json.loads(cleaned_text)
 
             if not isinstance(data, (list, dict)):
                 st.error("Invalid JSON format.")
