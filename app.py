@@ -3,7 +3,6 @@ import json
 import tempfile
 import pandas as pd
 import re
-import ast
 import streamlit.components.v1 as components
 from process_juicebox import extract, make_xlsx
 
@@ -11,45 +10,29 @@ st.set_page_config(page_title="JSON to Excel", layout="wide")
 
 st.title("JSON → Spreadsheet Converter")
 
-# --- CLEANING FUNCTION ---
-def clean_json(text):
+
+# --- STRONG CLEANER ---
+def normalize_json(text):
     text = text.strip()
 
-    # Remove BOM / weird chars
+    # Remove BOM / invisible chars
     text = text.encode('utf-8', 'ignore').decode('utf-8')
+
+    # Fix unescaped newlines
+    text = re.sub(r'(?<!\\)\n', r'\\n', text)
+
+    # Remove trailing commas (VERY COMMON ISSUE)
+    text = re.sub(r',(\s*[}\]])', r'\1', text)
 
     return text
 
 
-# --- ROBUST PARSER ---
-def parse_json_safely(text):
-    # Attempt 1: Direct JSON
+# --- PARSER ---
+def safe_parse(text):
     try:
         return json.loads(text)
-    except:
-        pass
-
-    # Attempt 2: Fix raw newlines
-    try:
-        fixed = re.sub(r'(?<!\\)\n', r'\\n', text)
-        return json.loads(fixed)
-    except:
-        pass
-
-    # Attempt 3: Handle stringified JSON
-    try:
-        unescaped = text.encode().decode('unicode_escape')
-        return json.loads(unescaped)
-    except:
-        pass
-
-    # Attempt 4: Python dict fallback (very useful)
-    try:
-        return ast.literal_eval(text)
-    except:
-        pass
-
-    raise ValueError("Unable to parse JSON. Input is too malformed.")
+    except Exception as e:
+        raise ValueError(f"Still invalid JSON: {e}")
 
 
 # --- INPUT ---
@@ -60,11 +43,12 @@ if st.button("Convert"):
         st.error("Paste some JSON first.")
     else:
         try:
-            cleaned = clean_json(json_text)
-            data = parse_json_safely(cleaned)
+            cleaned = normalize_json(json_text)
+
+            data = safe_parse(cleaned)
 
             if not isinstance(data, (list, dict)):
-                st.error("Parsed data is not valid JSON structure.")
+                st.error("Invalid JSON structure.")
                 st.stop()
 
             rows = extract(data)
@@ -76,10 +60,10 @@ if st.button("Convert"):
 
                 st.success(f"Processed {len(df)} rows ✅")
 
-                # --- PREVIEW ---
+                # Preview
                 st.dataframe(df, use_container_width=True)
 
-                # --- DOWNLOAD EXCEL ---
+                # Download Excel
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
                     make_xlsx(rows, tmp.name)
                     tmp_path = tmp.name
@@ -91,7 +75,7 @@ if st.button("Convert"):
                         file_name="output.xlsx"
                     )
 
-                # --- COPY BUTTON ---
+                # Copy button
                 tsv_data = df.to_csv(sep="\t", index=False)
 
                 st.markdown("### Copy for Google Sheets")
@@ -99,7 +83,7 @@ if st.button("Convert"):
                 components.html(f"""
 <textarea id="data" style="width:100%;height:200px;">{tsv_data}</textarea>
 <br><br>
-<button onclick="copyText()" style="padding:10px 20px;font-size:16px;cursor:pointer;">
+<button onclick="copyText()" style="padding:10px 20px;font-size:16px;">
 Copy Entire Sheet
 </button>
 
@@ -107,15 +91,14 @@ Copy Entire Sheet
 function copyText() {{
     var copyText = document.getElementById("data");
     copyText.select();
-    copyText.setSelectionRange(0, 999999);
     document.execCommand("copy");
-    alert("Copied to clipboard!");
+    alert("Copied!");
 }}
 </script>
 """, height=300)
 
         except Exception as e:
-            st.error(f"❌ Failed to process JSON: {e}")
+            st.error(f"❌ Failed: {e}")
 
-            st.markdown("### Debug Preview (first 500 chars)")
+            st.markdown("### Debug (first 500 chars)")
             st.code(json_text[:500])
