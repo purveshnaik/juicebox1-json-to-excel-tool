@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import json
 import tempfile
 import pandas as pd
@@ -42,14 +43,27 @@ if st.button("Convert"):
                     )
 
                 # --- COPY OPTION (TSV for clean paste into Sheets) ---
-                tsv_data = df.to_csv(sep="\t", index=False)
+                import streamlit.components.v1 as components
 
-                st.markdown("### Copy for Google Sheets")
-                st.text_area(
-                    "Copy this and paste into Google Sheets",
-                    tsv_data,
-                    height=200
-                )
+tsv_data = df.to_csv(sep="\t", index=False)
+
+st.markdown("### Copy for Google Sheets")
+
+components.html(f"""
+<textarea id="data" style="width:100%;height:200px;">{tsv_data}</textarea>
+<br><br>
+<button onclick="copyText()">Copy Entire Sheet</button>
+
+<script>
+function copyText() {{
+    var copyText = document.getElementById("data");
+    copyText.select();
+    copyText.setSelectionRange(0, 999999);
+    document.execCommand("copy");
+    alert("Copied to clipboard!");
+}}
+</script>
+""", height=300)
 
         except Exception as e:
             st.error(f"Invalid JSON or processing error: {e}")
