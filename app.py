@@ -1,8 +1,8 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import json
 import tempfile
 import pandas as pd
+import streamlit.components.v1 as components
 from process_juicebox import extract, make_xlsx
 
 st.set_page_config(page_title="JSON to Excel", layout="wide")
@@ -18,6 +18,11 @@ if st.button("Convert"):
     else:
         try:
             data = json.loads(json_text)
+
+            if not isinstance(data, (list, dict)):
+                st.error("Invalid JSON format.")
+                st.stop()
+
             rows = extract(data)
 
             if not rows:
@@ -27,7 +32,7 @@ if st.button("Convert"):
 
                 st.success(f"Processed {len(df)} rows ✅")
 
-                # --- PREVIEW TABLE ---
+                # --- PREVIEW ---
                 st.dataframe(df, use_container_width=True)
 
                 # --- DOWNLOAD EXCEL ---
@@ -42,17 +47,17 @@ if st.button("Convert"):
                         file_name="output.xlsx"
                     )
 
-                # --- COPY OPTION (TSV for clean paste into Sheets) ---
-                import streamlit.components.v1 as components
+                # --- COPY BUTTON ---
+                tsv_data = df.to_csv(sep="\t", index=False)
 
-tsv_data = df.to_csv(sep="\t", index=False)
+                st.markdown("### Copy for Google Sheets")
 
-st.markdown("### Copy for Google Sheets")
-
-components.html(f"""
+                components.html(f"""
 <textarea id="data" style="width:100%;height:200px;">{tsv_data}</textarea>
 <br><br>
-<button onclick="copyText()">Copy Entire Sheet</button>
+<button onclick="copyText()" style="padding:10px 20px;font-size:16px;cursor:pointer;">
+Copy Entire Sheet
+</button>
 
 <script>
 function copyText() {{
@@ -66,4 +71,4 @@ function copyText() {{
 """, height=300)
 
         except Exception as e:
-            st.error(f"Invalid JSON or processing error: {e}")
+            st.error(f"Error: {e}")
