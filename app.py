@@ -10,30 +10,85 @@ st.set_page_config(page_title="HeroScouter – JSON → Sheet", layout="wide")
 st.title("HeroScouter · JSON → Spreadsheet")
 st.caption("Paste Juicebox JSON export → see a live table → copy to Google Sheets in one click.")
 
-# ── JSON CLEANER ─────────────────────────────────────────────────────────────
+
+# ── CORE FIX: escape control chars inside JSON strings ───────────────────────
+def fix_control_chars_in_strings(text: str) -> str:
+    """
+    Walk character-by-character. When inside a JSON string value, replace
+    literal control characters (newlines, tabs, carriage returns, etc.) with
+    their proper JSON escape sequences.
+
+    This is the root cause of the "Invalid control character" error when
+    pasting JSON from browser DevTools / network inspector — the server
+    embeds raw \\n characters in summary/description fields without escaping.
+
+    Regex cannot safely do this because it can't track 'inside vs outside a string'.
+    """
+    result = []
+    in_string = False
+    i = 0
+    n = len(text)
+
+    while i < n:
+        c = text[i]
+
+        if in_string:
+            if c == '\\':
+                # Pass both chars of the escape sequence through unchanged
+                result.append(c)
+                i += 1
+                if i < n:
+                    result.append(text[i])
+                    i += 1
+                continue
+            elif c == '"':
+                in_string = False
+                result.append(c)
+                i += 1
+                continue
+            else:
+                # Inside a string — sanitise bare control characters
+                if   c == '\n': result.append('\\n')
+                elif c == '\r': result.append('\\r')
+                elif c == '\t': result.append('\\t')
+                elif ord(c) < 0x20:
+                    result.append(f'\\u{ord(c):04x}')
+                else:
+                    result.append(c)
+                i += 1
+                continue
+        else:
+            if c == '"':
+                in_string = True
+            result.append(c)
+            i += 1
+
+    return ''.join(result)
+
+
+# ── FULL JSON NORMALISER ──────────────────────────────────────────────────────
 def normalize_json(text: str) -> str:
-    """Aggressively clean common JSON paste issues."""
-    # Strip BOM and surrounding whitespace
-    text = text.strip().lstrip("\ufeff")
+    """Clean all common JSON paste issues from network-exported data."""
 
-    # Remove JS-style single-line comments  //...
-    text = re.sub(r'//[^\n]*', '', text)
+    # 1. Strip BOM and surrounding whitespace
+    text = text.strip().lstrip('\ufeff')
 
-    # Remove JS-style block comments  /* ... */
+    # 2. Python literals → JSON (do BEFORE string scanner so booleans outside strings are fixed)
+    text = re.sub(r'\bTrue\b',  'true',  text)
+    text = re.sub(r'\bFalse\b', 'false', text)
+    text = re.sub(r'\bNone\b',  'null',  text)
+
+    # 3. Remove JS-style comments (from DevTools copy-as-fetch)
+    text = re.sub(r'//[^\n"]*\n', '\n', text)
     text = re.sub(r'/\*.*?\*/', '', text, flags=re.DOTALL)
 
-    # Trailing commas before ] or }  — very common from copy-paste
-    text = re.sub(r',\s*([}\]])', r'\1', text)
+    # 4. THE MAIN FIX: escape literal control characters inside string values
+    text = fix_control_chars_in_strings(text)
 
-    # Python True/False/None → JSON true/false/null
-    # Only replace when they appear as JSON values (not inside strings)
-    text = re.sub(r'\bTrue\b', 'true', text)
-    text = re.sub(r'\bFalse\b', 'false', text)
-    text = re.sub(r'\bNone\b', 'null', text)
+    # 5. Trailing commas before ] or }
+    text = re.sub(r',(\s*[}\]])', r'\1', text)
 
-    # Single-quoted strings → double-quoted
-    # Simple heuristic: swap ' for " when it looks like a key/value delimiter
-    # (only do this if the text contains single quotes and no double quotes at all)
+    # 6. Single-quoted documents → double-quoted (only when no " present at all)
     if "'" in text and '"' not in text:
         text = text.replace("'", '"')
 
@@ -125,10 +180,13 @@ if convert_btn:
             st.code(cleaned[:800])
 
         st.info(
-            "**Common fixes:**\n"
-            "- Make sure you copied the *entire* JSON (check for a matching `}` or `]` at the end)\n"
-            "- Python booleans (`True`/`False`) are auto-fixed, but check for other non-JSON values\n"
-            "- Trailing commas are auto-fixed — but nested ones sometimes slip through"
+            "**Common causes from network/DevTools exports:**\n"
+            "- Literal newlines inside text fields (auto-fixed — "
+            "if you still see this, the JSON may be truncated)\n"
+            "- Make sure you copied the *entire* response "
+            "(scroll to the bottom and verify it ends with `}` or `]`)\n"
+            "- Python booleans `True`/`False` are auto-fixed\n"
+            "- Trailing commas are auto-fixed"
         )
         st.stop()
 
