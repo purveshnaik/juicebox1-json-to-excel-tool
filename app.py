@@ -36,7 +36,12 @@ if st.button("Convert"):
             # 🔥 CLEAN JSON BEFORE PARSING
             cleaned_text = clean_json(json_text)
 
-            data = json.loads(cleaned_text)
+            try:
+                data = json.loads(cleaned_text)
+            except json.JSONDecodeError as e:
+                st.error(f"JSON Error: {e}")
+                st.text_area("Problematic JSON (first 500 chars)", cleaned_text[:500])
+                st.stop()
 
             if not isinstance(data, (list, dict)):
                 st.error("Invalid JSON format.")
