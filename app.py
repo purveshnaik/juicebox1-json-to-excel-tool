@@ -3,6 +3,7 @@ import json
 import tempfile
 import pandas as pd
 import re
+import ast
 import streamlit.components.v1 as components
 from process_juicebox import extract, make_xlsx
 
@@ -10,20 +11,46 @@ st.set_page_config(page_title="JSON to Excel", layout="wide")
 
 st.title("JSON → Spreadsheet Converter")
 
-# --- CLEANER FUNCTION (fix invalid JSON newlines) ---
+# --- CLEANING FUNCTION ---
 def clean_json(text):
-    import re
-
-    # Remove leading/trailing whitespace
     text = text.strip()
 
-    # Remove invisible BOM / weird chars
+    # Remove BOM / weird chars
     text = text.encode('utf-8', 'ignore').decode('utf-8')
 
-    # Fix unescaped newlines
-    text = re.sub(r'(?<!\\)\n', r'\\n', text)
-
     return text
+
+
+# --- ROBUST PARSER ---
+def parse_json_safely(text):
+    # Attempt 1: Direct JSON
+    try:
+        return json.loads(text)
+    except:
+        pass
+
+    # Attempt 2: Fix raw newlines
+    try:
+        fixed = re.sub(r'(?<!\\)\n', r'\\n', text)
+        return json.loads(fixed)
+    except:
+        pass
+
+    # Attempt 3: Handle stringified JSON
+    try:
+        unescaped = text.encode().decode('unicode_escape')
+        return json.loads(unescaped)
+    except:
+        pass
+
+    # Attempt 4: Python dict fallback (very useful)
+    try:
+        return ast.literal_eval(text)
+    except:
+        pass
+
+    raise ValueError("Unable to parse JSON. Input is too malformed.")
+
 
 # --- INPUT ---
 json_text = st.text_area("Paste your JSON here", height=300)
@@ -33,18 +60,11 @@ if st.button("Convert"):
         st.error("Paste some JSON first.")
     else:
         try:
-            # 🔥 CLEAN JSON BEFORE PARSING
-            cleaned_text = clean_json(json_text)
-
-            try:
-                data = json.loads(cleaned_text)
-            except json.JSONDecodeError as e:
-                st.error(f"JSON Error: {e}")
-                st.text_area("Problematic JSON (first 500 chars)", cleaned_text[:500])
-                st.stop()
+            cleaned = clean_json(json_text)
+            data = parse_json_safely(cleaned)
 
             if not isinstance(data, (list, dict)):
-                st.error("Invalid JSON format.")
+                st.error("Parsed data is not valid JSON structure.")
                 st.stop()
 
             rows = extract(data)
@@ -95,4 +115,7 @@ function copyText() {{
 """, height=300)
 
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"❌ Failed to process JSON: {e}")
+
+            st.markdown("### Debug Preview (first 500 chars)")
+            st.code(json_text[:500])
