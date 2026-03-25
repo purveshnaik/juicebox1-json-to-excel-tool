@@ -12,8 +12,18 @@ st.title("JSON → Spreadsheet Converter")
 
 # --- CLEANER FUNCTION (fix invalid JSON newlines) ---
 def clean_json(text):
-    # Replace raw newlines with escaped \n
-    return re.sub(r'(?<!\\)\n', r'\\n', text)
+    import re
+
+    # Remove leading/trailing whitespace
+    text = text.strip()
+
+    # Remove invisible BOM / weird chars
+    text = text.encode('utf-8', 'ignore').decode('utf-8')
+
+    # Fix unescaped newlines
+    text = re.sub(r'(?<!\\)\n', r'\\n', text)
+
+    return text
 
 # --- INPUT ---
 json_text = st.text_area("Paste your JSON here", height=300)
